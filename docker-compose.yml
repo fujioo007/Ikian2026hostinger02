@@ -30,10 +30,10 @@ services:
     container_name: ps9-db
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: root
-      MARIADB_DATABASE: prestashop
-      MARIADB_USER: prestashop
-      MARIADB_PASSWORD: prestashop
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
       TZ: ${TZ}
     volumes:
       - ./db-data1:/var/lib/mysql

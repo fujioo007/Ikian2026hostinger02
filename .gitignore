@@ -27,7 +27,8 @@ Thumbs.db
 # Volumes locaux
 db-data1/
 db-data2/
-certs/
+certs/traefik.crt
+certs/traefik.key
 xtrabackup/
 db-backup/
 # Volumes locaux db1 & db2
