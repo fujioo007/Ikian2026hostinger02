@@ -1,0 +1,102 @@
+#################################################
+# SYSTEM
+#################################################
+
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+.idea/
+.vscode/
+*.bak
+
+#################################################
+# ENV FILES (SENSIBLE)
+#################################################
+
+.env
+.env.local
+.env.*
+!.env.example
+
+#################################################
+# DOCKER
+#################################################
+
+# Volumes locaux
+db-data1/
+db-data2/
+certs/
+xtrabackup/
+db-backup/
+# Volumes locaux db1 & db2
+backups/
+grafana-data/
+prometheus-data/
+
+# Docker overrides
+docker-compose.override.yml
+
+#################################################
+# PRESTASHOP
+#################################################
+prestashop/*
+prestashop1/*
+prestashop2/*
+prestashop/config/settings.inc.php
+prestashop/install/
+
+# Cache
+prestashop/var/cache/
+prestashop/var/logs/
+prestashop/var/sessions/
+
+# Uploads & généré dynamiquement
+prestashop/img/tmp/
+prestashop/download/
+prestashop/upload/
+
+# Node / Build
+prestashop/node_modules/
+prestashop/themes/*/assets/cache/
+
+#################################################
+# PHP
+#################################################
+
+vendor/
+composer.lock
+
+#################################################
+# NGINX
+#################################################
+
+nginx-cache/
+
+#################################################
+# MONITORING
+#################################################
+
+prometheus-data/
+grafana-data/
+
+#################################################
+# BACKUPS SQL
+#################################################
+
+*.sql
+*.sql.gz
+
+#################################################
+# ACME (Let's Encrypt)
+#################################################
+
+acme.json
+
+#################################################
+# TEMP
+#################################################
+
+tmp/
+*.tmp

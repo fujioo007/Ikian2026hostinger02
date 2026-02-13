@@ -1,0 +1,36 @@
+# traefik.yml
+
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+
+# Activation du dashboard et de l'API
+api:
+  dashboard: true
+  insecure: false # ← IMPORTANT : active le dashboard sur :8080 (local uniquement !)
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+  metrics:
+    address: ":9092"
+  # Optionnel mais recommandé : un entrypoint dédié pour le dashboard
+  #traefik:
+  #  address: ":8080"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: ps9
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    # addRouterLabels: true     # ← NE PAS AJOUTER (n'existe pas dans Traefik v3)

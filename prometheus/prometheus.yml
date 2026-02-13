@@ -1,0 +1,43 @@
+global:
+  scrape_interval: 15s # Intervalle de collecte standard
+  evaluation_interval: 15s # Intervalle d'évaluation des règles d'alerte
+  scrape_timeout: 10s # Timeout par scrape (évite les blocages)
+
+scrape_configs:
+  # cAdvisor (métriques conteneurs + hôte)
+  - job_name: "cadvisor"
+    scrape_interval: 10s # plus fréquent, cAdvisor est léger
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Nginx Prometheus Exporter
+  - job_name: "nginx-exporter"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["nginx-exporter:9113"]
+
+  # Traefik (si tu as activé les métriques dans traefik.yml)
+  - job_name: "traefik"
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["traefik:9092"]
+
+  # Prometheus self-monitoring (très utile)
+  - job_name: "prometheus"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["localhost:9090", "prometheus:9090"]
+
+  # Grafana (seulement si tu as activé les métriques internes de Grafana)
+  - job_name: "grafana"
+    scrape_interval: 30s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["grafana:3000"]
+# Optionnel : tu peux ajouter plus tard
+#  - job_name: "node"   # si tu ajoutes node-exporter pour les métriques hôte
+#    static_configs:
+#      - targets: ["node-exporter:9100"]

@@ -1,0 +1,289 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:v3.6
+    container_name: ps9-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080" # ← obligatoire pour accéder au dashboard
+      - "9092:9092" # pour les métriques (optionnel)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      #- ./healthcheck.sh:/usr/local/bin/healthcheck.sh # Monter le script bash
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST}`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=web"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$tEFsd2pp$$3esEQCMeYQWN5im0H.4UC0"
+
+    networks:
+      - ps9
+
+  mariadb:
+    image: mariadb:11.4
+    container_name: ps9-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: prestashop
+      MARIADB_USER: prestashop
+      MARIADB_PASSWORD: prestashop
+      TZ: ${TZ}
+    volumes:
+      - ./db-data1:/var/lib/mysql
+    healthcheck:
+      #test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      test: [ "CMD", "mariadb", "-u", "root", "-proot", "-e", "SELECT 1;" ]
+      #test: [ "CMD", "mariadb", "-u", "healthcheck", "-p${MYSQL_ROOT_PASSWORD:-securepassword}", "-e", "SELECT 1;" ]
+      start_period: 5s
+      interval: 5s
+      timeout: 1s
+      retries: 3
+    networks:
+      - ps9
+  mariadb2:
+    image: mariadb:11.4
+    container_name: ps9-db2
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: prestashop2
+      MARIADB_USER: prestashop
+      MARIADB_PASSWORD: prestashop
+      TZ: ${TZ}
+    volumes:
+      - ./db-data2:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mariadb", "-u", "healthcheck", "-p${MYSQL_ROOT_PASSWORD:-securepassword}", "-e", "SELECT 1;" ]
+      start_period: 5s
+      interval: 5s
+      timeout: 1s
+      retries: 3
+    networks:
+      - ps9
+  php:
+    build:
+      context: ./php
+    container_name: ps9-php
+    restart: unless-stopped
+    volumes:
+      - ./prestashop:/var/www/html
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./wait-for-it.sh:/wait-for-it.sh # Monter le script wait-for-it
+    environment:
+      TZ: ${TZ}
+      DB_SERVER: ${DB_SERVER}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWD: ${DB_PASSWD}
+      DB_PREFIX: ${DB_PREFIX}
+      PS_FOLDER_INSTALL: ${PS_FOLDER_INSTALL}
+      PS_FOLDER_ADMIN: ${PS_FOLDER_ADMIN}
+      PS_DEV_MODE: ${PS_DEV_MODE}
+      # Redis pour cache et sessions
+      PS_CACHE_ENABLED: 1
+      PS_CACHE_TYPE: Redis
+      PS_REDIS_HOST: redis
+      PS_REDIS_PORT: 6379
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - ps9
+
+  nginx:
+    build:
+      context: ./nginx
+    container_name: ps9-nginx
+    restart: unless-stopped
+    volumes:
+      - ./prestashop:/var/www/html
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx-cache:/var/cache/nginx
+
+    depends_on:
+      - php
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prestashop.rule=Host(`${PRESTASHOP_HOST}`)"
+      - "traefik.http.routers.prestashop.entrypoints=web"
+      - "traefik.http.services.prestashop.loadbalancer.server.port=80"
+    networks:
+      - ps9
+  # ---------------- Redis ----------------
+  redis:
+    image: redis:7-alpine
+    container_name: ps9-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - ps9
+  # ---------------- PhpMyAdmin ----------------
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: ps9-pma
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mariadb
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pma.rule=Host(`${PMA_HOST}`)"
+      - "traefik.http.routers.pma.entrypoints=web"
+      - "traefik.http.services.pma.loadbalancer.server.port=80"
+    depends_on:
+      - mariadb
+    networks:
+      - ps9
+  phpmyadmin2:
+    image: phpmyadmin/phpmyadmin
+    container_name: ps9-pma2
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mariadb2
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pma2.rule=Host(`${PMA2_HOST}`)"
+      - "traefik.http.routers.pma2.entrypoints=web"
+      - "traefik.http.services.pma2.loadbalancer.server.port=80"
+    depends_on:
+      mariadb2:
+        condition: service_healthy
+
+    networks:
+      - ps9
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ps9-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "admin" # Mot de passe administrateur de Grafana
+    ports:
+      - "3000:3000" # Port de Grafana
+    volumes:
+      - grafana-data:/var/lib/grafana # Volume pour persister les données de Grafana
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_HOST}`)" # URL d'accès à Grafana
+      - "traefik.http.routers.grafana.entrypoints=web" # Utilise l'entrypoint 'web'
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000" # Port du service Grafana
+    networks:
+      - ps9
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.53.0
+    container_name: ps9-cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cadvisor.rule=Host(`${CADVISOR_HOST}`)"
+      - "traefik.http.routers.cadvisor.entrypoints=web"
+      - "traefik.http.services.cadvisor.loadbalancer.server.port=8080"
+    networks:
+      - ps9
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: ps9-nginx-exporter
+    restart: unless-stopped
+    command:
+      - --nginx.scrape-uri=http://nginx/nginx_status # L'URL du point de statut de Nginx à surveiller
+      # Optionnel : plus de verbosité pour le debug
+      # - --log.level=debug
+      - --log.level=debug
+    depends_on:
+      - nginx
+    ports:
+      - "9113:9113"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nginx-exporter.rule=Host(`${NGINX_EXPORTER_HOST}`)" # Remplacer avec ton domaine
+      - "traefik.http.services.nginx-exporter.loadbalancer.server.port=9113" # Port de l'exportateur
+    networks:
+      - ps9 # Le réseau Docker
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ps9-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090" # Prometheus UI
+    networks:
+      - ps9
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`${PROMETHEUS_HOST}`)"
+      - "traefik.http.routers.prometheus.entrypoints=web"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+  backup-db1:
+    image: fradelg/mysql-cron-backup:latest
+    container_name: ps9-backup-db1
+    restart: unless-stopped
+    environment:
+      # Pour la première base (mariadb)
+      MYSQL_HOST: mariadb
+      MYSQL_USER: ${MARIADB_USER}
+      MYSQL_PASS: ${MARIADB_PASSWORD}
+      MYSQL_DB: ${MARIADB_DATABASE} # ou --all-databases si tu veux tout
+      # MYSQLDUMP_OPTS: --single-transaction --routines --triggers --events --flush-logs
+      MYSQLDUMP_OPTS: "--single-transaction --routines --triggers --events --no-tablespaces"
+      # Pour la seconde base (mariadb2) → on peut lancer deux conteneurs ou un script custom
+      # (voir variantes plus bas si tu veux gérer les deux d’un coup)
+      CRON_TIME: ${BACKUP_CRON_TIME} # ← TOUTES LES 5 MINUTES
+      # CRON_TIME: "0 3 * * *" # tous les jours à 3h00
+      MAX_BACKUPS: ${BACKUP_MAX} # garde exactement 30 sauvegardes (rotation)
+      GZIP_LEVEL: ${BACKUP_GZIP_LEVEL} # 1=rapide → 9=meilleure compression
+      TZ: ${TZ}
+      INIT_BACKUP: "0"
+    volumes:
+      #- backup-db1-vol:/backup
+      - ./backups/db1:/backup # ← volume nommé # tous les .sql.gz seront ici
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      # - mariadb2     (si tu veux forcer l’ordre)
+    networks:
+      - ps9
+networks:
+  ps9:
+    name: ps9
+    driver: bridge
+volumes:
+  db-data1:
+    name: ps9-db-data1
+  db-data2:
+    name: ps9-db-data2
+  nginx-cache:
+    name: ps9-nginx-cache
+    external: true
+  grafana-data:
+    name: ps9-grafana-data
+    external: true
+  prometheus-data:
+    name: ps9-prometheus-data
+    external: true
+  backup-db1-vol:
+    name: ps9_backup_db1 # ou sans name: pour nom auto-généré
